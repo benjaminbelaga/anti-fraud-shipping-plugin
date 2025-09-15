@@ -1,0 +1,54 @@
+name: Test WooCommerce Fraud Shield
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2']
+        wordpress: ['5.9', '6.0', '6.6']
+
+    name: PHP ${{ matrix.php }} / WordPress ${{ matrix.wordpress }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php }}
+        extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd
+        coverage: none
+
+    - name: Install WordPress
+      run: |
+        wget https://wordpress.org/wordpress-${{ matrix.wordpress }}.tar.gz
+        tar -xzf wordpress-${{ matrix.wordpress }}.tar.gz
+        mv wordpress /tmp/wordpress
+
+    - name: Install WooCommerce
+      run: |
+        wget https://downloads.wordpress.org/plugin/woocommerce.latest-stable.zip
+        unzip woocommerce.latest-stable.zip -d /tmp/wordpress/wp-content/plugins/
+
+    - name: Setup Plugin
+      run: |
+        cp -r . /tmp/wordpress/wp-content/plugins/woocommerce-fraud-shield/
+
+    - name: PHP Syntax Check
+      run: |
+        find . -name "*.php" -exec php -l {} \;
+
+    - name: WordPress Coding Standards
+      run: |
+        composer global require "squizlabs/php_codesniffer=*"
+        composer global require wp-coding-standards/wpcs
+        ~/.composer/vendor/bin/phpcs --config-set installed_paths ~/.composer/vendor/wp-coding-standards/wpcs
+        ~/.composer/vendor/bin/phpcs --standard=WordPress woocommerce-fraud-shield.php

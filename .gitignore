@@ -1,0 +1,55 @@
+# WordPress
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
+wp-content/backup-db/
+wp-content/advanced-cache.php
+wp-content/wp-cache-config.php
+
+# Plugin development
+node_modules/
+vendor/
+composer.lock
+package-lock.json
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+*.swo
+
+# Logs
+*.log
+debug.log
+error_log
+
+# Temporary files
+*.temp
+*.bak
+*.backup
+
+# Build files
+/build/
+/dist/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# Coverage reports
+/coverage/
+*.coverage
+.nyc_output/
+
+# Test files
+/tests/tmp/
+/tests/logs/
