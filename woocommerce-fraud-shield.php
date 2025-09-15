@@ -66,8 +66,8 @@ class WooCommerce_Fraud_Shield {
         add_action('woocommerce_before_cart', array($this, 'show_security_warning'));
         add_action('woocommerce_before_checkout_form', array($this, 'show_security_warning'));
 
-        // Debug console for admins
-        add_action('wp_footer', array($this, 'debug_console'));
+        // Debug console for admins (disabled in production)
+        // add_action('wp_footer', array($this, 'debug_console'));
 
         // Admin page
         add_action('admin_menu', array($this, 'add_admin_menu'));
