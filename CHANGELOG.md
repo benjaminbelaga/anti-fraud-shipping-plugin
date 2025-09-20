@@ -5,6 +5,31 @@ All notable changes to WooCommerce Fraud Shield will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-09-20
+
+### Added
+- 🏆 **HPOS Compatibility** - Official WooCommerce High-Performance Order Storage support
+- 🔍 **Enhanced Order Analysis** - Dual-mode analysis for HPOS and Legacy order systems
+- 📊 **Advanced Risk Scoring** - Comprehensive fraud detection with 7-point analysis system
+- 🎛️ **Professional Admin Interface** - Complete dashboard with real-time statistics
+- 📁 **Template System** - Organized admin templates for better maintainability
+- 🌐 **Internationalization** - Full i18n support with translation files
+- 📋 **Live Statistics** - Real-time fraud detection metrics and reporting
+- 🔔 **Email Alerts** - Automated admin notifications for fraud attempts
+
+### Enhanced
+- ⚡ **Performance Optimization** - Improved cart analysis and honeypot detection
+- 🛡️ **Security Improvements** - Enhanced IP detection and technical analysis
+- 📝 **Comprehensive Logging** - Structured log files with monthly rotation
+- 🎯 **Risk Assessment** - Multi-factor risk scoring for better fraud detection
+- 🔧 **Configuration Management** - Advanced settings with live updates
+
+### Technical
+- 🔌 **WooCommerce 8.0+ Required** - Updated minimum requirements
+- 🏗️ **HPOS Declaration** - Official compatibility declaration with FeaturesUtil
+- 📦 **Modular Architecture** - Better code organization and maintainability
+- 🧪 **Production Ready** - Fully tested on yoyaku.io production environment
+
 ## [1.0.0] - 2025-09-14
 
 ### Added

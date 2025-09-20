@@ -1,0 +1,506 @@
+/**
+ * WooCommerce Fraud Shield - Admin Styles
+ *
+ * Styles modernes et professionnels pour l'interface d'administration
+ * Compatible avec l'interface WordPress/WooCommerce
+ */
+
+/* Variables CSS */
+:root {
+    --wfs-primary: #2271b1;
+    --wfs-success: #00a32a;
+    --wfs-warning: #dba617;
+    --wfs-danger: #d63638;
+    --wfs-info: #72aee6;
+    --wfs-dark: #1d2327;
+    --wfs-light: #f6f7f7;
+    --wfs-border: #c3c4c7;
+    --wfs-border-light: #dcdcde;
+    --wfs-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --wfs-shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.15);
+    --wfs-radius: 4px;
+    --wfs-radius-large: 8px;
+}
+
+/* Container principal */
+.wfs-admin-page {
+    max-width: 1200px;
+    margin: 0;
+    padding: 20px 20px 20px 0;
+}
+
+/* Titre principal */
+.wfs-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 2em;
+    margin-bottom: 10px;
+    color: var(--wfs-dark);
+    font-weight: 600;
+}
+
+.wfs-version {
+    font-size: 0.5em;
+    background: var(--wfs-primary);
+    color: white;
+    padding: 4px 8px;
+    border-radius: var(--wfs-radius);
+    font-weight: normal;
+}
+
+/* Header info */
+.wfs-header-info {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    align-items: center;
+}
+
+.wfs-status-badge {
+    padding: 8px 16px;
+    border-radius: var(--wfs-radius);
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.wfs-status-badge.enabled {
+    background: var(--wfs-success);
+    color: white;
+}
+
+.wfs-status-badge.disabled {
+    background: var(--wfs-danger);
+    color: white;
+}
+
+.wfs-hpos-status {
+    color: var(--wfs-dark);
+    font-size: 14px;
+}
+
+/* Notice personnalisée */
+.wfs-notice {
+    border-left: 4px solid var(--wfs-primary);
+    background: #f0f6fc;
+    padding: 15px 20px;
+    margin: 20px 0;
+}
+
+.wfs-notice h3 {
+    margin: 0 0 10px 0;
+    color: var(--wfs-primary);
+}
+
+.wfs-notice p {
+    margin: 5px 0;
+}
+
+/* Grille des statistiques */
+.wfs-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin: 30px 0;
+}
+
+.wfs-stat-card {
+    background: white;
+    border: 1px solid var(--wfs-border-light);
+    border-radius: var(--wfs-radius-large);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: var(--wfs-shadow);
+    transition: all 0.3s ease;
+}
+
+.wfs-stat-card:hover {
+    box-shadow: var(--wfs-shadow-hover);
+    transform: translateY(-2px);
+}
+
+.wfs-stat-icon {
+    font-size: 2.5em;
+    opacity: 0.8;
+}
+
+.wfs-stat-content h3 {
+    margin: 0;
+    font-size: 2em;
+    font-weight: 700;
+    color: var(--wfs-dark);
+}
+
+.wfs-stat-content p {
+    margin: 5px 0 0 0;
+    color: #666;
+    font-size: 0.9em;
+}
+
+/* Cartes statistiques spécifiques */
+.wfs-stat-card.honeypot .wfs-stat-content h3 {
+    color: var(--wfs-danger);
+}
+
+.wfs-stat-card.security-fees .wfs-stat-content h3 {
+    color: var(--wfs-warning);
+}
+
+.wfs-stat-card.amount-protected .wfs-stat-content h3 {
+    color: var(--wfs-success);
+}
+
+.wfs-stat-card.alerts .wfs-stat-content h3 {
+    color: var(--wfs-info);
+}
+
+/* Grille admin */
+.wfs-admin-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 30px;
+    margin: 30px 0;
+}
+
+/* Sections admin */
+.wfs-admin-section {
+    background: white;
+    border: 1px solid var(--wfs-border-light);
+    border-radius: var(--wfs-radius-large);
+    padding: 25px;
+    box-shadow: var(--wfs-shadow);
+}
+
+.wfs-admin-section h2 {
+    margin: 0 0 20px 0;
+    color: var(--wfs-dark);
+    font-size: 1.3em;
+    border-bottom: 2px solid var(--wfs-light);
+    padding-bottom: 10px;
+}
+
+/* Formulaire de paramètres */
+.wfs-settings-form .form-table th {
+    width: 200px;
+    font-weight: 600;
+    color: var(--wfs-dark);
+}
+
+.wfs-settings-form .form-table td {
+    padding-bottom: 20px;
+}
+
+/* Switch custom */
+.wfs-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+
+.wfs-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.wfs-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.wfs-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+input:checked + .wfs-slider {
+    background-color: var(--wfs-success);
+}
+
+input:checked + .wfs-slider:before {
+    transform: translateX(26px);
+}
+
+/* Range slider */
+.wfs-range-slider {
+    width: 200px;
+    margin-right: 15px;
+}
+
+.wfs-range-value {
+    display: inline-block;
+    min-width: 40px;
+    padding: 4px 8px;
+    background: var(--wfs-primary);
+    color: white;
+    border-radius: var(--wfs-radius);
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+/* Section de sauvegarde */
+.wfs-save-section {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--wfs-border-light);
+    text-align: right;
+}
+
+#wfs-save-settings {
+    background: var(--wfs-success) !important;
+    border-color: var(--wfs-success) !important;
+    font-size: 16px !important;
+    padding: 10px 25px !important;
+}
+
+/* Statistiques en temps réel */
+.wfs-live-stats #wfs-monthly-stats {
+    background: var(--wfs-light);
+    padding: 20px;
+    border-radius: var(--wfs-radius);
+    margin-bottom: 15px;
+}
+
+.wfs-loading {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+    font-style: italic;
+}
+
+/* Section logs */
+.wfs-logs-section {
+    grid-column: 1 / -1;
+    margin-top: 20px;
+}
+
+.wfs-logs-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.wfs-logs-controls .button {
+    font-size: 14px;
+    padding: 8px 15px;
+}
+
+.wfs-logs-display {
+    background: var(--wfs-dark);
+    color: #f0f0f0;
+    padding: 20px;
+    border-radius: var(--wfs-radius);
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    max-height: 400px;
+    overflow-y: auto;
+    line-height: 1.5;
+}
+
+.wfs-logs-empty {
+    text-align: center;
+    color: #888;
+    font-style: italic;
+    padding: 40px;
+}
+
+/* Informations système */
+.wfs-system-info {
+    grid-column: 1 / -1;
+}
+
+.wfs-system-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 15px;
+}
+
+.wfs-system-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: var(--wfs-light);
+    border-radius: var(--wfs-radius);
+    border-left: 3px solid var(--wfs-primary);
+}
+
+.wfs-system-item strong {
+    color: var(--wfs-dark);
+}
+
+.wfs-enabled {
+    color: var(--wfs-success);
+    font-weight: 600;
+}
+
+.wfs-disabled {
+    color: var(--wfs-danger);
+    font-weight: 600;
+}
+
+.wfs-version-badge,
+.wfs-honeypot-id,
+.wfs-security-fee {
+    background: var(--wfs-primary);
+    color: white;
+    padding: 2px 8px;
+    border-radius: var(--wfs-radius);
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.wfs-log-path {
+    font-family: monospace;
+    font-size: 0.85em;
+    color: #666;
+    background: #f9f9f9;
+    padding: 2px 6px;
+    border-radius: var(--wfs-radius);
+}
+
+/* Documentation */
+.wfs-documentation {
+    grid-column: 1 / -1;
+}
+
+.wfs-doc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.wfs-doc-item {
+    background: var(--wfs-light);
+    padding: 20px;
+    border-radius: var(--wfs-radius);
+    border-left: 4px solid var(--wfs-info);
+}
+
+.wfs-doc-item h3 {
+    margin: 0 0 10px 0;
+    color: var(--wfs-dark);
+    font-size: 1.1em;
+}
+
+.wfs-doc-item p {
+    margin: 0;
+    color: #666;
+    line-height: 1.5;
+}
+
+/* Footer */
+.wfs-admin-footer {
+    margin-top: 40px;
+    padding: 20px;
+    background: var(--wfs-dark);
+    color: white;
+    border-radius: var(--wfs-radius);
+    text-align: center;
+}
+
+.wfs-admin-footer a {
+    color: var(--wfs-info);
+    text-decoration: none;
+}
+
+.wfs-admin-footer a:hover {
+    text-decoration: underline;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .wfs-admin-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .wfs-admin-page {
+        padding: 10px;
+    }
+
+    .wfs-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .wfs-header-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .wfs-system-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .wfs-doc-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .wfs-logs-controls {
+        flex-direction: column;
+    }
+
+    .wfs-logs-controls .button {
+        width: 100%;
+    }
+}
+
+/* Animations */
+@keyframes wfs-pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.wfs-loading {
+    animation: wfs-pulse 1.5s ease-in-out infinite;
+}
+
+/* États hover pour les cartes */
+.wfs-stat-card:hover,
+.wfs-admin-section:hover {
+    border-color: var(--wfs-primary);
+}
+
+/* Focus states pour l'accessibilité */
+.wfs-switch input:focus + .wfs-slider,
+.wfs-range-slider:focus,
+input[type="checkbox"]:focus,
+input[type="range"]:focus {
+    outline: 2px solid var(--wfs-primary);
+    outline-offset: 2px;
+}
+
+/* Print styles */
+@media print {
+    .wfs-admin-page {
+        color: black !important;
+        background: white !important;
+    }
+
+    .wfs-stat-card,
+    .wfs-admin-section {
+        border: 1px solid #ccc !important;
+        box-shadow: none !important;
+    }
+}

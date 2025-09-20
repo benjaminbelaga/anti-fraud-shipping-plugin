@@ -2,12 +2,13 @@
 
 <div align="center">
 
-![Plugin Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Plugin Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)
-![WooCommerce](https://img.shields.io/badge/WooCommerce-3.0%2B-purple.svg)
+![WooCommerce](https://img.shields.io/badge/WooCommerce-8.0%2B-purple.svg)
+![HPOS Compatible](https://img.shields.io/badge/HPOS-Compatible-green.svg)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)
 ![License](https://img.shields.io/badge/license-GPL%20v2%2B-green.svg)
-![Tested](https://img.shields.io/badge/tested%20up%20to-WP%206.6-green.svg)
+![Tested](https://img.shields.io/badge/tested%20up%20to-WP%206.7-green.svg)
 
 **The most advanced anti-fraud shipping protection system for WooCommerce**
 
@@ -91,6 +92,8 @@ Instead of blocking, we **deter fraud with smart economics** while maintaining t
 - **Cache Optimized**: Smart invalidation strategies
 - **WordPress Standards**: WPCS compliant, security audited
 - **Multi-Site Ready**: Network installation support
+- **🏆 HPOS Compatible**: Full support for WooCommerce High-Performance Order Storage (HPOS)
+- **Future-Proof**: Built for WooCommerce 8.0+ with official HPOS declaration
 
 ---
 

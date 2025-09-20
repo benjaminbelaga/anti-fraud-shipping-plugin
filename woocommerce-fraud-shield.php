@@ -1,486 +1,1219 @@
 <?php
 /**
  * Plugin Name: WooCommerce Fraud Shield
- * Plugin URI: https://github.com/yoyaku-tech/woocommerce-fraud-shield
- * Description: Advanced anti-fraud shipping protection for WooCommerce. Detects suspicious product purchases and applies enhanced security measures to prevent credit card fraud attempts.
- * Version: 1.0.0
- * Author: YOYAKU Tech Team
+ * Plugin URI: https://yoyaku.io
+ * Description: Système de protection anti-fraude sophistiqué pour yoyaku.io avec détection honeypot et frais de sécurité automatiques
+ * Version: 1.1.0
+ * Author: YOYAKU Infrastructure Team
  * Author URI: https://yoyaku.io
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: woocommerce-fraud-shield
  * Domain Path: /languages
- * Requires at least: 5.0
- * Tested up to: 6.6
+ * Requires at least: 5.8
+ * Tested up to: 6.7
  * Requires PHP: 7.4
- * WC requires at least: 3.0
- * WC tested up to: 9.0
+ * WC requires at least: 8.0
+ * WC tested up to: 9.4
+ * Network: false
  *
  * @package WooCommerce_Fraud_Shield
- * @version 1.0.0
- * @author YOYAKU Tech Team
- * @since 2025-09-14
+ * @category Security
+ * @author YOYAKU Infrastructure Team
  */
 
+// Sécurité - Empêcher l'accès direct
 if (!defined('ABSPATH')) {
-    exit;
+    exit('Direct access forbidden.');
 }
 
+// Vérification de sécurité pour WooCommerce
+if (!function_exists('is_plugin_active')) {
+    include_once(ABSPATH . 'wp-admin/includes/plugin.php');
+}
+
+// Constantes du plugin
+define('WFS_PLUGIN_FILE', __FILE__);
+define('WFS_PLUGIN_PATH', plugin_dir_path(__FILE__));
+define('WFS_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('WFS_VERSION', '1.1.0');
+define('WFS_LOG_DIR', WP_CONTENT_DIR . '/fraud-shield-logs/');
+define('WFS_HONEYPOT_PRODUCT_ID', 604098);
+define('WFS_SECURITY_FEE', 9999.00);
+define('WFS_MIN_PHP', '7.4');
+define('WFS_MIN_WC', '8.0');
+
 /**
- * Main plugin class for WooCommerce Fraud Shield
+ * Déclaration de compatibilité HPOS WooCommerce
+ * Déclare officiellement la compatibilité avec High-Performance Order Storage
+ */
+add_action('before_woocommerce_init', function() {
+    if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+    }
+});
+
+/**
+ * Classe principale WooCommerce Fraud Shield
  *
- * @since 1.0.0
+ * Système sophistiqué de protection anti-fraude pour yoyaku.io
+ * - Détection honeypot produit 604098
+ * - Application automatique de frais de sécurité 9999€
+ * - Interface admin complète avec logs et statistiques
+ * - Compatibilité HPOS officielle
+ * - Standards WordPress/WooCommerce professionnels
  */
 class WooCommerce_Fraud_Shield {
 
+    /**
+     * Instance singleton
+     * @var WooCommerce_Fraud_Shield|null
+     */
     private static $instance = null;
-    private $suspicious_products = array(604098);
-    private $debug_logs = array();
 
-    public static function getInstance() {
-        if (self::$instance === null) {
+    /**
+     * Configuration du plugin
+     * @var array
+     */
+    private $config = [
+        'enabled' => false,
+        'alert_threshold' => 60,
+        'auto_security_fee' => true,
+        'email_alerts' => true,
+        'log_all_attempts' => true,
+        'hpos_enabled' => false
+    ];
+
+    /**
+     * Statistiques en temps réel
+     * @var array
+     */
+    private $stats = [
+        'honeypot_detections' => 0,
+        'security_fees_applied' => 0,
+        'total_amount_protected' => 0,
+        'alerts_sent' => 0
+    ];
+
+    /**
+     * Obtenir l'instance singleton
+     *
+     * @return WooCommerce_Fraud_Shield
+     */
+    public static function get_instance() {
+        if (null === self::$instance) {
             self::$instance = new self();
         }
         return self::$instance;
     }
 
+    /**
+     * Constructeur privé pour singleton
+     */
     private function __construct() {
-        $this->init_hooks();
+        add_action('init', [$this, 'init']);
+        add_action('plugins_loaded', [$this, 'load_textdomain']);
+
+        // Hooks WooCommerce
+        add_action('woocommerce_before_calculate_totals', [$this, 'detect_honeypot_and_apply_security_fee'], 10, 1);
+        add_action('woocommerce_checkout_order_processed', [$this, 'analyze_order_hpos'], 10, 3);
+        add_action('woocommerce_checkout_process', [$this, 'analyze_order_legacy'], 5);
+
+        // Interface admin
+        add_action('admin_menu', [$this, 'add_admin_menu']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
+
+        // AJAX handlers
+        add_action('wp_ajax_wfs_get_live_stats', [$this, 'ajax_get_live_stats']);
+        add_action('wp_ajax_wfs_clear_logs', [$this, 'ajax_clear_logs']);
+
+        // Activation/Désactivation
+        register_activation_hook(WFS_PLUGIN_FILE, [$this, 'activate']);
+        register_deactivation_hook(WFS_PLUGIN_FILE, [$this, 'deactivate']);
+
+        // Charger la configuration
+        $this->load_config();
     }
 
     /**
-     * Initialize hooks for 9999€ shipping replacement
+     * Initialisation du plugin
      */
-    private function init_hooks() {
-        // Primary hook: Replace shipping rates with 9999€ security fee
-        add_filter('woocommerce_package_rates', array($this, 'replace_with_security_fee'), 1000, 2);
+    public function init() {
+        // Vérifications de compatibilité
+        if (!$this->check_requirements()) {
+            return;
+        }
 
-        // Force cache invalidation to ensure hook fires
-        add_filter('woocommerce_cart_shipping_packages', array($this, 'force_cache_invalidation'), 1);
+        // Créer les dossiers nécessaires
+        $this->create_directories();
 
-        // Clear all shipping caches
-        add_action('woocommerce_before_cart_table', array($this, 'clear_shipping_caches'));
-        add_action('woocommerce_review_order_before_shipping', array($this, 'clear_shipping_caches'));
+        // Détecter HPOS
+        $this->config['hpos_enabled'] = $this->is_hpos_enabled();
 
-        // Red warning message for users
-        add_action('woocommerce_before_cart', array($this, 'show_security_warning'));
-        add_action('woocommerce_before_checkout_form', array($this, 'show_security_warning'));
+        // Log du démarrage
+        $this->log_system_info();
 
-        // Debug console for admins (disabled in production)
-        // add_action('wp_footer', array($this, 'debug_console'));
-
-        // Admin page
-        add_action('admin_menu', array($this, 'add_admin_menu'));
+        // Charger les statistiques
+        $this->load_stats();
     }
 
     /**
-     * MAIN FUNCTION: Replace all shipping with 9999€ security fee
+     * Vérifier les prérequis
+     *
+     * @return bool
      */
-    public function replace_with_security_fee($rates, $package) {
-        $this->log_debug("=== PROCESSING SHIPPING RATES ===");
+    private function check_requirements() {
+        $errors = [];
 
-        // Skip if admin or empty cart
-        if (is_admin() || !WC()->cart || WC()->cart->is_empty()) {
-            $this->log_debug("Skipping: Admin or empty cart");
-            return $rates;
+        // PHP version
+        if (version_compare(PHP_VERSION, WFS_MIN_PHP, '<')) {
+            $errors[] = sprintf(__('PHP %s or higher is required.', 'woocommerce-fraud-shield'), WFS_MIN_PHP);
         }
 
-        $cart_analysis = $this->analyze_cart();
-        $this->log_debug("Cart analysis: " . json_encode($cart_analysis));
-
-        // If cart contains ONLY suspicious products (604098)
-        if ($cart_analysis['only_suspicious']) {
-            $this->log_debug("🚫 SUSPICIOUS CART DETECTED - REPLACING WITH 9999€ SECURITY FEE");
-
-            // Log the fraud attempt
-            $this->log_fraud_attempt($cart_analysis, $rates);
-
-            // CREATE THE 9999€ SECURITY RATE
-            $security_rate = new WC_Shipping_Rate(
-                'yoyaku_security_fee',                    // Rate ID
-                '🚨 Security Verification Fee',           // Rate label
-                9999,                                     // Cost: 9999€
-                array(),                                  // Taxes
-                'yoyaku_security'                         // Method ID
-            );
-
-            // REPLACE ALL RATES with our 9999€ security fee
-            $new_rates = array(
-                'yoyaku_security_fee' => $security_rate
-            );
-
-            $this->log_debug("✅ REPLACED " . count($rates) . " shipping methods with 9999€ security fee");
-
-            // Store in session for tracking
-            WC()->session->set('yoyaku_security_fee_applied', true);
-            WC()->session->set('yoyaku_security_fee_time', time());
-
-            return $new_rates; // Return ONLY the 9999€ rate
+        // WooCommerce
+        if (!class_exists('WooCommerce')) {
+            $errors[] = __('WooCommerce must be installed and activated.', 'woocommerce-fraud-shield');
+        } elseif (version_compare(WC_VERSION, WFS_MIN_WC, '<')) {
+            $errors[] = sprintf(__('WooCommerce %s or higher is required.', 'woocommerce-fraud-shield'), WFS_MIN_WC);
         }
 
-        $this->log_debug("✅ Normal cart - allowing original shipping");
+        if (!empty($errors)) {
+            add_action('admin_notices', function() use ($errors) {
+                foreach ($errors as $error) {
+                    echo '<div class="notice notice-error"><p><strong>WooCommerce Fraud Shield:</strong> ' . esc_html($error) . '</p></div>';
+                }
+            });
+            return false;
+        }
 
-        // Clear security fee session for normal products
-        WC()->session->set('yoyaku_security_fee_applied', false);
-
-        return $rates; // Return original rates for normal products
+        return true;
     }
 
     /**
-     * Force cache invalidation to ensure hooks fire
+     * Détecter si HPOS est activé
+     *
+     * @return bool
      */
-    public function force_cache_invalidation($packages) {
-        $this->log_debug("🔄 FORCING CACHE INVALIDATION");
-
-        foreach ($packages as &$package) {
-            // Force WooCommerce to recalculate by changing cache key
-            $package['cache_key'] = 'yoyaku_antifraud_' . time() . '_' . wp_rand();
-            $package['rate_cache'] = wp_rand();
+    private function is_hpos_enabled() {
+        if (!class_exists('Automattic\WooCommerce\Utilities\OrderUtil')) {
+            return false;
         }
-        unset($package);
-
-        $this->log_debug("✅ Cache invalidation complete");
-        return $packages;
+        return \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
     }
 
     /**
-     * Clear all shipping caches
+     * Créer les dossiers nécessaires
      */
-    public function clear_shipping_caches() {
-        $this->log_debug("🧹 CLEARING SHIPPING CACHES");
+    private function create_directories() {
+        if (!file_exists(WFS_LOG_DIR)) {
+            wp_mkdir_p(WFS_LOG_DIR);
 
-        // Clear WordPress transients
-        global $wpdb;
-        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_ship_%'");
-        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_ship_%'");
-
-        // Clear WooCommerce session cache
-        if (WC()->session) {
-            WC()->session->set('shipping_for_package_0', null);
-            WC()->session->set('chosen_shipping_methods', array());
+            // Protection du dossier
+            $htaccess_content = "Order Deny,Allow\nDeny from all";
+            file_put_contents(WFS_LOG_DIR . '.htaccess', $htaccess_content);
+            file_put_contents(WFS_LOG_DIR . 'index.php', '<?php // Silence is golden');
         }
-
-        // Clear object cache
-        if (function_exists('wp_cache_delete')) {
-            wp_cache_delete('wc_shipping_zones', 'woocommerce');
-            wp_cache_delete('wc_shipping_methods', 'woocommerce');
-        }
-
-        // Force recalculation
-        if (WC()->cart && method_exists(WC()->cart, 'calculate_shipping')) {
-            WC()->cart->calculate_shipping();
-        }
-
-        $this->log_debug("✅ Shipping caches cleared");
     }
 
     /**
-     * Analyze cart contents for suspicious products
+     * DÉTECTION HONEYPOT ET APPLICATION DES FRAIS DE SÉCURITÉ
+     * Coeur du système anti-fraude sophistiqué
      */
-    private function analyze_cart() {
-        if (!WC()->cart || WC()->cart->is_empty()) {
-            return array(
-                'total_items' => 0,
-                'suspicious_items' => 0,
-                'suspicious_products' => array(),
-                'only_suspicious' => false,
-                'cart_total' => 0
-            );
+    public function detect_honeypot_and_apply_security_fee($cart) {
+        if (!$this->config['enabled'] || !$this->config['auto_security_fee']) {
+            return;
         }
 
-        $cart_items = WC()->cart->get_cart();
-        $total_items = count($cart_items);
-        $suspicious_items = 0;
-        $suspicious_product_ids = array();
+        if (is_admin() && !defined('DOING_AJAX')) {
+            return;
+        }
 
-        foreach ($cart_items as $cart_item) {
+        if (did_action('woocommerce_before_calculate_totals') >= 2) {
+            return;
+        }
+
+        $honeypot_detected = false;
+        $honeypot_quantity = 0;
+
+        // Analyser le panier pour détecter le produit honeypot
+        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
             $product_id = $cart_item['product_id'];
-            if (in_array($product_id, $this->suspicious_products)) {
-                $suspicious_items++;
-                $suspicious_product_ids[] = $product_id;
+
+            if ($product_id == WFS_HONEYPOT_PRODUCT_ID) {
+                $honeypot_detected = true;
+                $honeypot_quantity = $cart_item['quantity'];
+
+                // Log de la détection
+                $this->log_honeypot_detection($product_id, $honeypot_quantity);
+
+                // Supprimer le produit honeypot du panier
+                $cart->remove_cart_item($cart_item_key);
+                break;
             }
         }
 
-        return array(
-            'total_items' => $total_items,
-            'suspicious_items' => $suspicious_items,
-            'suspicious_products' => $suspicious_product_ids,
-            'only_suspicious' => ($total_items > 0 && $suspicious_items === $total_items),
-            'cart_total' => WC()->cart->get_total('raw')
-        );
+        // Si honeypot détecté, appliquer les frais de sécurité
+        if ($honeypot_detected) {
+            $this->apply_security_fee($cart, $honeypot_quantity);
+
+            // Mettre à jour les statistiques
+            $this->stats['honeypot_detections']++;
+            $this->stats['security_fees_applied']++;
+            $this->stats['total_amount_protected'] += WFS_SECURITY_FEE;
+            $this->save_stats();
+
+            // Alerte admin immédiate
+            $this->send_fraud_alert([
+                'type' => 'honeypot_detection',
+                'product_id' => WFS_HONEYPOT_PRODUCT_ID,
+                'quantity' => $honeypot_quantity,
+                'security_fee' => WFS_SECURITY_FEE,
+                'ip' => $this->get_client_ip(),
+                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+                'timestamp' => current_time('mysql')
+            ]);
+        }
     }
 
     /**
-     * Log fraud attempts with 9999€ fee application
+     * Appliquer les frais de sécurité
+     *
+     * @param WC_Cart $cart
+     * @param int $honeypot_quantity
      */
-    private function log_fraud_attempt($cart_analysis, $original_rates) {
-        $log_entry = array(
+    private function apply_security_fee($cart, $honeypot_quantity = 1) {
+        $security_fee = WFS_SECURITY_FEE * $honeypot_quantity;
+
+        $cart->add_fee(
+            __('Frais de sécurité anti-fraude', 'woocommerce-fraud-shield'),
+            $security_fee,
+            true // Taxable
+        );
+
+        // Ajouter une notice pour l'utilisateur
+        if (!wc_has_notice(__('Des frais de sécurité ont été appliqués à votre commande.', 'woocommerce-fraud-shield'), 'notice')) {
+            wc_add_notice(
+                __('Des frais de sécurité ont été appliqués à votre commande pour des raisons de sécurité.', 'woocommerce-fraud-shield'),
+                'notice'
+            );
+        }
+    }
+
+    /**
+     * Logger la détection honeypot
+     *
+     * @param int $product_id
+     * @param int $quantity
+     */
+    private function log_honeypot_detection($product_id, $quantity) {
+        $log_data = [
             'timestamp' => current_time('mysql'),
-            'ip_address' => $this->get_client_ip(),
-            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown',
-            'user_id' => get_current_user_id(),
-            'cart_analysis' => $cart_analysis,
-            'original_rates_count' => count($original_rates),
-            'original_rate_ids' => array_keys($original_rates),
-            'action_taken' => 'REPLACED_WITH_9999_SECURITY_FEE',
-            'security_fee_applied' => 9999,
-            'referer' => wp_get_referer()
-        );
+            'type' => 'honeypot_detection',
+            'product_id' => $product_id,
+            'quantity' => $quantity,
+            'security_fee_applied' => WFS_SECURITY_FEE,
+            'ip' => $this->get_client_ip(),
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'referer' => $_SERVER['HTTP_REFERER'] ?? '',
+            'session_id' => WC()->session ? WC()->session->get_customer_id() : '',
+            'cart_contents' => $this->get_cart_summary()
+        ];
 
-        // Save to options
-        $fraud_logs = get_option('yoyaku_fraud_9999_logs', array());
-        $fraud_logs[] = $log_entry;
-
-        // Keep only last 200 entries
-        if (count($fraud_logs) > 200) {
-            $fraud_logs = array_slice($fraud_logs, -200);
-        }
-
-        update_option('yoyaku_fraud_9999_logs', $fraud_logs);
-
-        $this->log_debug("🚨 FRAUD LOGGED: IP " . $log_entry['ip_address'] . ", Products: " . implode(',', $cart_analysis['suspicious_products']));
-
-        // Log to WordPress error log
-        error_log('[YOYAKU Anti-Fraud] 9999€ security fee applied - IP: ' . $log_entry['ip_address'] . ', Products: ' . implode(',', $cart_analysis['suspicious_products']));
+        $this->log_event($log_data, 'honeypot');
     }
 
     /**
-     * Debug console for administrators
+     * Obtenir un résumé du panier
+     *
+     * @return array
      */
-    public function debug_console() {
-        if (!current_user_can('manage_woocommerce') || (!is_cart() && !is_checkout())) {
+    private function get_cart_summary() {
+        if (!WC()->cart) {
+            return [];
+        }
+
+        $summary = [];
+        foreach (WC()->cart->get_cart() as $cart_item) {
+            $summary[] = [
+                'product_id' => $cart_item['product_id'],
+                'quantity' => $cart_item['quantity'],
+                'price' => $cart_item['line_total']
+            ];
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Analyser une commande (HPOS)
+     *
+     * @param int $order_id
+     * @param array $posted_data
+     * @param WC_Order $order
+     */
+    public function analyze_order_hpos($order_id, $posted_data, $order) {
+        if (!$this->config['enabled'] || !$this->config['hpos_enabled']) {
             return;
         }
 
-        $cart_analysis = $this->analyze_cart();
-        $security_fee_applied = WC()->session ? WC()->session->get('yoyaku_security_fee_applied') : false;
+        try {
+            $order_data = $this->extract_order_data_hpos($order, $posted_data);
+            $risk_analysis = $this->calculate_comprehensive_risk_score($order_data);
 
-        echo '<div id="yoyaku-9999-debug" style="
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background: linear-gradient(45deg, #1a1a1a, #2d2d2d);
-            color: #00ff00;
-            padding: 20px;
-            max-width: 400px;
-            max-height: 500px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 12px;
-            z-index: 999999;
-            border: 2px solid #ff6600;
-            border-radius: 8px;
-            box-shadow: 0 0 20px rgba(255,102,0,0.3);
-        ">';
+            $log_data = [
+                'timestamp' => current_time('mysql'),
+                'order_id' => $order_id,
+                'mode' => 'hpos',
+                'ip' => $this->get_client_ip(),
+                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+                'risk_analysis' => $risk_analysis,
+                'order_data' => $order_data
+            ];
 
-        echo '<div style="color: #ff6600; font-weight: bold; text-align: center; margin-bottom: 15px;">
-            💰 YOYAKU 9999€ SECURITY DEBUG
-        </div>';
+            // Log toutes les analyses
+            $this->log_event($log_data, 'order_analysis');
 
-        echo '<div style="color: #00ffff; margin-bottom: 15px;">
-            <strong>CART STATUS:</strong><br>
-            Only Suspicious: ' . ($cart_analysis['only_suspicious'] ? '<span style="color: #ff0000;">YES - 9999€ FEE SHOULD APPLY</span>' : '<span style="color: #00ff00;">NO - NORMAL SHIPPING</span>') . '<br>
-            Security Fee Applied: ' . ($security_fee_applied ? '<span style="color: #ff0000;">YES (9999€)</span>' : '<span style="color: #00ff00;">NO</span>') . '<br>
-            Products: ' . implode(', ', $cart_analysis['suspicious_products']) . '<br>
-            Total Items: ' . $cart_analysis['total_items'] . '<br>
-            Suspicious Items: ' . $cart_analysis['suspicious_items'] . '
-        </div>';
-
-        echo '<div style="color: #ffff00; margin-bottom: 15px;">
-            <strong>SYSTEM STATUS:</strong><br>
-            Hook Priority: 1000 (High)<br>
-            Cache Cleared: ✅<br>
-            Rate Replacement: ✅<br>
-            Logging: ✅
-        </div>';
-
-        echo '<div style="color: #00ff00; font-size: 10px; border-top: 1px solid #666; padding-top: 10px;">
-            <strong>RECENT DEBUG LOGS:</strong><br>';
-            $recent_logs = array_slice($this->debug_logs, -10);
-            foreach ($recent_logs as $log) {
-                echo date('H:i:s', $log['time']) . ': ' . htmlspecialchars($log['message']) . '<br>';
+            // Alerte si score élevé
+            if ($risk_analysis['score'] >= $this->config['alert_threshold']) {
+                $this->log_event($log_data, 'high_risk_alert');
+                $this->send_fraud_alert($log_data);
+                $this->stats['alerts_sent']++;
+                $this->save_stats();
             }
-        echo '</div>';
 
-        echo '</div>';
+        } catch (Exception $e) {
+            error_log('WooCommerce Fraud Shield HPOS Error: ' . $e->getMessage());
+        }
     }
 
     /**
-     * Show red security warning message to users
+     * Analyser une commande (Legacy)
+     *
+     * @return void
      */
-    public function show_security_warning() {
-        if (!WC()->cart || WC()->cart->is_empty()) {
+    public function analyze_order_legacy() {
+        if (!$this->config['enabled'] || $this->config['hpos_enabled']) {
             return;
         }
 
-        $cart_analysis = $this->analyze_cart();
+        try {
+            $order_data = $this->extract_order_data_legacy();
+            $risk_analysis = $this->calculate_comprehensive_risk_score($order_data);
 
-        // Only show warning when security fee is applied (only suspicious products)
-        if ($cart_analysis['only_suspicious']) {
-            echo '<div style="
-                background: #dc3545;
-                color: #ffffff;
-                padding: 15px 20px;
-                margin: 20px 0;
-                border: 2px solid #b02a37;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 16px;
-                text-align: center;
-                box-shadow: 0 2px 10px rgba(220, 53, 69, 0.3);
-            ">
-                🚨 <strong>SUSPECT ACTIVITY DETECTED - SECURITY DEPLOYED</strong> 🚨
-                <div style="font-size: 14px; margin-top: 8px; font-weight: normal;">
-                    Enhanced security measures have been activated for this transaction.
-                </div>
-            </div>';
+            $log_data = [
+                'timestamp' => current_time('mysql'),
+                'order_id' => 'pending_legacy',
+                'mode' => 'legacy',
+                'ip' => $this->get_client_ip(),
+                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+                'risk_analysis' => $risk_analysis,
+                'order_data' => $order_data
+            ];
+
+            // Log toutes les analyses
+            $this->log_event($log_data, 'order_analysis');
+
+            // Alerte si score élevé
+            if ($risk_analysis['score'] >= $this->config['alert_threshold']) {
+                $this->log_event($log_data, 'high_risk_alert');
+                $this->send_fraud_alert($log_data);
+                $this->stats['alerts_sent']++;
+                $this->save_stats();
+            }
+
+        } catch (Exception $e) {
+            error_log('WooCommerce Fraud Shield Legacy Error: ' . $e->getMessage());
         }
     }
 
     /**
-     * Add admin menu
+     * Extraire les données de commande (HPOS)
+     *
+     * @param WC_Order $order
+     * @param array $posted_data
+     * @return array
      */
-    public function add_admin_menu() {
-        add_submenu_page(
-            'woocommerce',
-            'Anti-Fraud 9999€ Fee',
-            'Anti-Fraud 9999€',
-            'manage_woocommerce',
-            'yoyaku-fraud-9999-fee',
-            array($this, 'admin_page')
-        );
+    private function extract_order_data_hpos($order, $posted_data) {
+        return [
+            'email' => $order->get_billing_email(),
+            'country' => $order->get_billing_country(),
+            'amount' => $order->get_total(),
+            'items_count' => $order->get_item_count(),
+            'customer_id' => $order->get_customer_id(),
+            'billing_first_name' => $order->get_billing_first_name(),
+            'billing_last_name' => $order->get_billing_last_name(),
+            'billing_phone' => $order->get_billing_phone(),
+            'shipping_country' => $order->get_shipping_country(),
+            'payment_method' => $order->get_payment_method(),
+            'currency' => $order->get_currency(),
+            'order_items' => $this->extract_order_items($order),
+            'has_security_fee' => $this->order_has_security_fee($order)
+        ];
     }
 
     /**
-     * Admin page
+     * Extraire les données de commande (Legacy)
+     *
+     * @return array
      */
-    public function admin_page() {
-        $fraud_logs = get_option('yoyaku_fraud_9999_logs', array());
-        $recent_logs = array_slice(array_reverse($fraud_logs), 0, 30);
+    private function extract_order_data_legacy() {
+        return [
+            'email' => $_POST['billing_email'] ?? '',
+            'country' => $_POST['billing_country'] ?? '',
+            'amount' => WC()->cart ? WC()->cart->get_total('raw') : 0,
+            'items_count' => WC()->cart ? WC()->cart->get_cart_contents_count() : 0,
+            'customer_id' => get_current_user_id(),
+            'billing_first_name' => $_POST['billing_first_name'] ?? '',
+            'billing_last_name' => $_POST['billing_last_name'] ?? '',
+            'billing_phone' => $_POST['billing_phone'] ?? '',
+            'shipping_country' => $_POST['shipping_country'] ?? $_POST['billing_country'] ?? '',
+            'payment_method' => $_POST['payment_method'] ?? '',
+            'currency' => get_woocommerce_currency(),
+            'order_items' => $this->get_cart_summary(),
+            'has_security_fee' => $this->cart_has_security_fee()
+        ];
+    }
 
-        echo '<div class="wrap">';
-        echo '<h1>💰 YOYAKU Anti-Fraud 9999€ Security Fee</h1>';
+    /**
+     * Extraire les articles de la commande
+     *
+     * @param WC_Order $order
+     * @return array
+     */
+    private function extract_order_items($order) {
+        $items = [];
+        foreach ($order->get_items() as $item) {
+            $items[] = [
+                'product_id' => $item->get_product_id(),
+                'quantity' => $item->get_quantity(),
+                'total' => $item->get_total()
+            ];
+        }
+        return $items;
+    }
 
-        echo '<div class="notice notice-warning">';
-        echo '<p><strong>⚡ ACTIVE PROTECTION:</strong> When product 604098 is alone in cart, ALL shipping methods are replaced with a single 9999€ Security Verification Fee.</p>';
-        echo '</div>';
+    /**
+     * Vérifier si la commande a des frais de sécurité
+     *
+     * @param WC_Order $order
+     * @return bool
+     */
+    private function order_has_security_fee($order) {
+        foreach ($order->get_fees() as $fee) {
+            if (strpos($fee->get_name(), 'sécurité') !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-        echo '<div style="background: #f0f8ff; border: 1px solid #0073aa; padding: 15px; margin: 20px 0;">';
-        echo '<h3>🎯 How It Works:</h3>';
-        echo '<ul>';
-        echo '<li>✅ <strong>Normal products:</strong> Regular shipping rates apply</li>';
-        echo '<li>🚫 <strong>Product 604098 alone:</strong> All shipping replaced with 9999€ Security Fee</li>';
-        echo '<li>📊 <strong>Mixed cart:</strong> 604098 + normal products = regular shipping</li>';
-        echo '<li>🔍 <strong>Purpose:</strong> Deters fraud attempts while allowing legitimate mixed orders</li>';
-        echo '</ul>';
-        echo '</div>';
+    /**
+     * Vérifier si le panier a des frais de sécurité
+     *
+     * @return bool
+     */
+    private function cart_has_security_fee() {
+        if (!WC()->cart) return false;
 
-        echo '<h2>📋 Recent 9999€ Security Fee Applications</h2>';
-        echo '<p>Showing last 30 instances where the 9999€ security fee was applied:</p>';
+        foreach (WC()->cart->get_fees() as $fee) {
+            if (strpos($fee->name, 'sécurité') !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-        echo '<table class="widefat">';
-        echo '<thead>';
-        echo '<tr>';
-        echo '<th>Date/Time</th>';
-        echo '<th>IP Address</th>';
-        echo '<th>Products</th>';
-        echo '<th>Original Rates</th>';
-        echo '<th>Fee Applied</th>';
-        echo '<th>User Agent</th>';
-        echo '</tr>';
-        echo '</thead>';
-        echo '<tbody>';
+    /**
+     * Calculer un score de risque complet et sophistiqué
+     *
+     * @param array $order_data
+     * @return array
+     */
+    private function calculate_comprehensive_risk_score($order_data) {
+        $score = 0;
+        $factors = [];
+        $details = [];
 
-        if (empty($recent_logs)) {
-            echo '<tr><td colspan="6" style="text-align: center; color: #666;">No 9999€ security fees applied yet</td></tr>';
-        } else {
-            foreach ($recent_logs as $log) {
-                echo '<tr>';
-                echo '<td>' . esc_html($log['timestamp']) . '</td>';
-                echo '<td><code>' . esc_html($log['ip_address']) . '</code></td>';
-                echo '<td><strong>' . esc_html(implode(', ', $log['cart_analysis']['suspicious_products'])) . '</strong></td>';
-                echo '<td>' . esc_html($log['original_rates_count']) . ' methods</td>';
-                echo '<td style="color: red; font-weight: bold;">9999€</td>';
-                echo '<td title="' . esc_attr($log['user_agent']) . '">' . esc_html(substr($log['user_agent'], 0, 50)) . '...</td>';
-                echo '</tr>';
+        // 1. Détection de frais de sécurité (honeypot confirmé)
+        if ($order_data['has_security_fee']) {
+            $score += 90; // Score très élevé pour honeypot
+            $factors[] = 'security_fee_applied';
+            $details['security_fee'] = 'Honeypot product detected - security fee applied';
+        }
+
+        // 2. Email analysis
+        $email_risk = $this->analyze_email_risk($order_data['email']);
+        $score += $email_risk['score'];
+        if ($email_risk['score'] > 0) {
+            $factors = array_merge($factors, $email_risk['factors']);
+            $details['email'] = $email_risk['details'];
+        }
+
+        // 3. Geographic analysis
+        $geo_risk = $this->analyze_geographic_risk($order_data['country'], $order_data['shipping_country']);
+        $score += $geo_risk['score'];
+        if ($geo_risk['score'] > 0) {
+            $factors = array_merge($factors, $geo_risk['factors']);
+            $details['geographic'] = $geo_risk['details'];
+        }
+
+        // 4. Order value analysis
+        $value_risk = $this->analyze_order_value_risk($order_data['amount'], $order_data['items_count']);
+        $score += $value_risk['score'];
+        if ($value_risk['score'] > 0) {
+            $factors = array_merge($factors, $value_risk['factors']);
+            $details['value'] = $value_risk['details'];
+        }
+
+        // 5. Customer analysis
+        $customer_risk = $this->analyze_customer_risk($order_data['customer_id'], $order_data['billing_first_name'], $order_data['billing_last_name']);
+        $score += $customer_risk['score'];
+        if ($customer_risk['score'] > 0) {
+            $factors = array_merge($factors, $customer_risk['factors']);
+            $details['customer'] = $customer_risk['details'];
+        }
+
+        // 6. Technical analysis (IP, User Agent)
+        $technical_risk = $this->analyze_technical_risk();
+        $score += $technical_risk['score'];
+        if ($technical_risk['score'] > 0) {
+            $factors = array_merge($factors, $technical_risk['factors']);
+            $details['technical'] = $technical_risk['details'];
+        }
+
+        // 7. Behavioral analysis
+        $behavioral_risk = $this->analyze_behavioral_risk($order_data);
+        $score += $behavioral_risk['score'];
+        if ($behavioral_risk['score'] > 0) {
+            $factors = array_merge($factors, $behavioral_risk['factors']);
+            $details['behavioral'] = $behavioral_risk['details'];
+        }
+
+        return [
+            'score' => min($score, 100), // Plafonner à 100
+            'factors' => array_unique($factors),
+            'details' => $details,
+            'risk_level' => $this->get_risk_level($score)
+        ];
+    }
+
+    /**
+     * Analyser le risque email
+     *
+     * @param string $email
+     * @return array
+     */
+    private function analyze_email_risk($email) {
+        $score = 0;
+        $factors = [];
+        $details = [];
+
+        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $score += 30;
+            $factors[] = 'invalid_email';
+            $details[] = 'Invalid or missing email address';
+        }
+
+        // Domaines temporaires
+        $temp_domains = [
+            '10minutemail.com', 'guerrillamail.com', 'mailinator.com',
+            'tempmail.org', 'yopmail.com', 'throwaway.email',
+            'temp-mail.org', '10minutemail.net', 'getnada.com',
+            'sharklasers.com', 'mohmal.com', 'email-fake.com'
+        ];
+
+        $domain = substr(strrchr($email, "@"), 1);
+        if (in_array(strtolower($domain), $temp_domains)) {
+            $score += 40;
+            $factors[] = 'temporary_email';
+            $details[] = "Temporary email domain detected: {$domain}";
+        }
+
+        // Pattern suspects
+        if (preg_match('/\d{6,}/', $email)) {
+            $score += 15;
+            $factors[] = 'suspicious_email_pattern';
+            $details[] = 'Email contains long numeric sequence';
+        }
+
+        return ['score' => $score, 'factors' => $factors, 'details' => implode(', ', $details)];
+    }
+
+    /**
+     * Analyser le risque géographique
+     *
+     * @param string $billing_country
+     * @param string $shipping_country
+     * @return array
+     */
+    private function analyze_geographic_risk($billing_country, $shipping_country) {
+        $score = 0;
+        $factors = [];
+        $details = [];
+
+        // Pays à haut risque
+        $high_risk_countries = ['NG', 'GH', 'PK', 'BD', 'IN', 'RU', 'CN', 'IR', 'KP'];
+
+        if (in_array($billing_country, $high_risk_countries)) {
+            $score += 25;
+            $factors[] = 'high_risk_country';
+            $details[] = "High-risk billing country: {$billing_country}";
+        }
+
+        // Différence entre pays de facturation et livraison
+        if (!empty($shipping_country) && $shipping_country !== $billing_country) {
+            $score += 15;
+            $factors[] = 'country_mismatch';
+            $details[] = "Billing/shipping country mismatch: {$billing_country}/{$shipping_country}";
+        }
+
+        return ['score' => $score, 'factors' => $factors, 'details' => implode(', ', $details)];
+    }
+
+    /**
+     * Analyser le risque de valeur de commande
+     *
+     * @param float $amount
+     * @param int $items_count
+     * @return array
+     */
+    private function analyze_order_value_risk($amount, $items_count) {
+        $score = 0;
+        $factors = [];
+        $details = [];
+
+        $amount = floatval($amount);
+        $items_count = intval($items_count);
+
+        // Montants élevés
+        if ($amount > 1000) {
+            $score += 20;
+            $factors[] = 'high_amount';
+            $details[] = "High order amount: €{$amount}";
+        } elseif ($amount > 2000) {
+            $score += 35;
+            $factors[] = 'very_high_amount';
+            $details[] = "Very high order amount: €{$amount}";
+        }
+
+        // Nombre d'articles
+        if ($items_count > 20) {
+            $score += 15;
+            $factors[] = 'many_items';
+            $details[] = "Many items in order: {$items_count}";
+        } elseif ($items_count > 50) {
+            $score += 25;
+            $factors[] = 'excessive_items';
+            $details[] = "Excessive items in order: {$items_count}";
+        }
+
+        // Ratio prix/article suspect
+        if ($items_count > 0 && ($amount / $items_count) < 5) {
+            $score += 10;
+            $factors[] = 'low_average_price';
+            $details[] = "Suspiciously low average item price";
+        }
+
+        return ['score' => $score, 'factors' => $factors, 'details' => implode(', ', $details)];
+    }
+
+    /**
+     * Analyser le risque client
+     *
+     * @param int $customer_id
+     * @param string $first_name
+     * @param string $last_name
+     * @return array
+     */
+    private function analyze_customer_risk($customer_id, $first_name, $last_name) {
+        $score = 0;
+        $factors = [];
+        $details = [];
+
+        // Client invité
+        if (empty($customer_id) || $customer_id === 0) {
+            $score += 10;
+            $factors[] = 'guest_order';
+            $details[] = 'Guest checkout';
+        }
+
+        // Noms suspects
+        $full_name = trim($first_name . ' ' . $last_name);
+
+        if (empty($full_name) || strlen($full_name) < 3) {
+            $score += 15;
+            $factors[] = 'invalid_name';
+            $details[] = 'Invalid or missing name';
+        }
+
+        // Caractères répétés
+        if (preg_match('/(.)\1{3,}/', $full_name)) {
+            $score += 20;
+            $factors[] = 'suspicious_name_pattern';
+            $details[] = 'Name contains repeated characters';
+        }
+
+        // Nom trop long ou trop court
+        if (strlen($full_name) > 100 || (strlen($full_name) > 0 && strlen($full_name) < 3)) {
+            $score += 10;
+            $factors[] = 'unusual_name_length';
+            $details[] = 'Unusual name length';
+        }
+
+        return ['score' => $score, 'factors' => $factors, 'details' => implode(', ', $details)];
+    }
+
+    /**
+     * Analyser le risque technique
+     *
+     * @return array
+     */
+    private function analyze_technical_risk() {
+        $score = 0;
+        $factors = [];
+        $details = [];
+
+        // Analyse IP
+        $ip = $this->get_client_ip();
+        if (empty($ip) || !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            $score += 20;
+            $factors[] = 'suspicious_ip';
+            $details[] = 'Invalid or suspicious IP address';
+        }
+
+        // Analyse User Agent
+        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        if (empty($user_agent) || strlen($user_agent) < 10) {
+            $score += 15;
+            $factors[] = 'missing_user_agent';
+            $details[] = 'Missing or invalid user agent';
+        }
+
+        $suspicious_ua_patterns = [
+            'bot', 'crawler', 'scraper', 'curl', 'wget', 'python', 'java',
+            'automation', 'selenium', 'phantom', 'headless', 'spider'
+        ];
+
+        foreach ($suspicious_ua_patterns as $pattern) {
+            if (stripos($user_agent, $pattern) !== false) {
+                $score += 25;
+                $factors[] = 'bot_user_agent';
+                $details[] = "Bot-like user agent detected: {$pattern}";
+                break;
             }
         }
 
-        echo '</tbody>';
-        echo '</table>';
-
-        echo '<div style="margin-top: 30px; padding: 20px; background: #fff3cd; border: 1px solid #ffeaa7;">';
-        echo '<h3>🧪 Testing Instructions:</h3>';
-        echo '<ol>';
-        echo '<li><strong>Test Case 1:</strong> Add ONLY product 604098 to cart → Go to checkout → Should see "🚨 Security Verification Fee - 9999€"</li>';
-        echo '<li><strong>Test Case 2:</strong> Add product 604098 + any normal product → Should see regular shipping options</li>';
-        echo '<li><strong>Test Case 3:</strong> Add only normal products → Should see regular shipping options</li>';
-        echo '<li><strong>Debug:</strong> Admins see debug console in top-right corner of cart/checkout pages</li>';
-        echo '</ol>';
-        echo '</div>';
-
-        echo '</div>';
+        return ['score' => $score, 'factors' => $factors, 'details' => implode(', ', $details)];
     }
 
     /**
-     * Debug logging
+     * Analyser le risque comportemental
+     *
+     * @param array $order_data
+     * @return array
      */
-    private function log_debug($message) {
-        $this->debug_logs[] = array(
-            'time' => time(),
-            'message' => $message
-        );
+    private function analyze_behavioral_risk($order_data) {
+        $score = 0;
+        $factors = [];
+        $details = [];
 
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[YOYAKU 9999€ DEBUG] ' . $message);
+        // Commande très rapide (à implémenter avec tracking de session)
+        // Pour l'instant, analyse basique
+
+        // Méthode de paiement risquée
+        $risky_payment_methods = ['cod', 'cheque'];
+        if (in_array($order_data['payment_method'], $risky_payment_methods)) {
+            $score += 10;
+            $factors[] = 'risky_payment_method';
+            $details[] = "Risky payment method: {$order_data['payment_method']}";
         }
+
+        return ['score' => $score, 'factors' => $factors, 'details' => implode(', ', $details)];
     }
 
     /**
-     * Get client IP
+     * Obtenir le niveau de risque
+     *
+     * @param int $score
+     * @return string
+     */
+    private function get_risk_level($score) {
+        if ($score >= 80) return 'CRITICAL';
+        if ($score >= 60) return 'HIGH';
+        if ($score >= 40) return 'MEDIUM';
+        if ($score >= 20) return 'LOW';
+        return 'MINIMAL';
+    }
+
+    /**
+     * Obtenir l'IP du client avec détection avancée
+     *
+     * @return string
      */
     private function get_client_ip() {
-        $ip_keys = array('HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_X_CLUSTER_CLIENT_IP', 'REMOTE_ADDR');
+        $headers = [
+            'HTTP_CF_CONNECTING_IP',    // Cloudflare
+            'HTTP_X_FORWARDED_FOR',     // Load balancer/proxy
+            'HTTP_X_REAL_IP',           // Nginx
+            'HTTP_CLIENT_IP',           // Proxy
+            'HTTP_X_FORWARDED',         // Proxy
+            'HTTP_FORWARDED'            // Standard
+        ];
 
-        foreach ($ip_keys as $key) {
-            if (array_key_exists($key, $_SERVER) && !empty($_SERVER[$key])) {
-                foreach (explode(',', $_SERVER[$key]) as $ip) {
-                    $ip = trim($ip);
-                    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false) {
-                        return $ip;
-                    }
+        foreach ($headers as $header) {
+            if (!empty($_SERVER[$header])) {
+                $ips = explode(',', $_SERVER[$header]);
+                $ip = trim($ips[0]);
+
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    return $ip;
                 }
             }
         }
 
-        return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        return $_SERVER['REMOTE_ADDR'] ?? '';
+    }
+
+    /**
+     * Logger un événement
+     *
+     * @param array $data
+     * @param string $type
+     */
+    private function log_event($data, $type = 'general') {
+        if (!$this->config['log_all_attempts']) {
+            return;
+        }
+
+        $log_file = WFS_LOG_DIR . $type . '-' . date('Y-m') . '.log';
+        $log_entry = [
+            'timestamp' => current_time('mysql'),
+            'data' => $data,
+            'plugin_version' => WFS_VERSION
+        ];
+
+        $log_line = date('Y-m-d H:i:s') . ' - ' . json_encode($log_entry) . PHP_EOL;
+
+        if (file_put_contents($log_file, $log_line, FILE_APPEND | LOCK_EX) === false) {
+            error_log('WooCommerce Fraud Shield: Failed to write log file ' . $log_file);
+        }
+    }
+
+    /**
+     * Logger les informations système
+     */
+    private function log_system_info() {
+        $system_info = [
+            'timestamp' => current_time('mysql'),
+            'plugin_version' => WFS_VERSION,
+            'php_version' => PHP_VERSION,
+            'wp_version' => get_bloginfo('version'),
+            'wc_version' => defined('WC_VERSION') ? WC_VERSION : 'unknown',
+            'hpos_enabled' => $this->config['hpos_enabled'],
+            'plugin_enabled' => $this->config['enabled'],
+            'honeypot_product_id' => WFS_HONEYPOT_PRODUCT_ID,
+            'security_fee' => WFS_SECURITY_FEE,
+            'server_info' => [
+                'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? '',
+                'php_sapi' => php_sapi_name(),
+                'memory_limit' => ini_get('memory_limit'),
+                'max_execution_time' => ini_get('max_execution_time')
+            ]
+        ];
+
+        $this->log_event($system_info, 'system');
+    }
+
+    /**
+     * Envoyer une alerte de fraude
+     *
+     * @param array $data
+     */
+    private function send_fraud_alert($data) {
+        if (!$this->config['email_alerts']) {
+            return;
+        }
+
+        $admin_email = get_option('admin_email');
+        $site_name = get_bloginfo('name');
+
+        $subject = "[{$site_name}] 🚨 WooCommerce Fraud Shield Alert";
+
+        $message = "🚨 ALERTE SÉCURITÉ YOYAKU.IO\n\n";
+
+        if (isset($data['type']) && $data['type'] === 'honeypot_detection') {
+            $message .= "DÉTECTION HONEYPOT CONFIRMÉE !\n";
+            $message .= "Produit piège détecté: {$data['product_id']}\n";
+            $message .= "Quantité: {$data['quantity']}\n";
+            $message .= "Frais de sécurité appliqués: {$data['security_fee']}€\n\n";
+        } else {
+            $message .= "Commande à haut risque détectée\n";
+            $message .= "Score de risque: {$data['risk_analysis']['score']}/100\n";
+            $message .= "Niveau: {$data['risk_analysis']['risk_level']}\n";
+            $message .= "Facteurs: " . implode(', ', $data['risk_analysis']['factors']) . "\n\n";
+        }
+
+        $message .= "Détails techniques:\n";
+        $message .= "IP: {$data['ip']}\n";
+        $message .= "User Agent: " . substr($data['user_agent'], 0, 100) . "\n";
+        $message .= "Timestamp: {$data['timestamp']}\n\n";
+
+        $message .= "Action recommandée: Vérifiez manuellement cette activité dans l'admin WooCommerce.\n\n";
+        $message .= "---\n";
+        $message .= "WooCommerce Fraud Shield v" . WFS_VERSION . " - yoyaku.io";
+
+        wp_mail($admin_email, $subject, $message);
+    }
+
+    /**
+     * Charger la configuration
+     */
+    private function load_config() {
+        $this->config = array_merge($this->config, [
+            'enabled' => get_option('wfs_enabled', false),
+            'alert_threshold' => get_option('wfs_alert_threshold', 60),
+            'auto_security_fee' => get_option('wfs_auto_security_fee', true),
+            'email_alerts' => get_option('wfs_email_alerts', true),
+            'log_all_attempts' => get_option('wfs_log_all_attempts', true)
+        ]);
+    }
+
+    /**
+     * Sauvegarder la configuration
+     */
+    private function save_config() {
+        update_option('wfs_enabled', $this->config['enabled']);
+        update_option('wfs_alert_threshold', $this->config['alert_threshold']);
+        update_option('wfs_auto_security_fee', $this->config['auto_security_fee']);
+        update_option('wfs_email_alerts', $this->config['email_alerts']);
+        update_option('wfs_log_all_attempts', $this->config['log_all_attempts']);
+    }
+
+    /**
+     * Charger les statistiques
+     */
+    private function load_stats() {
+        $this->stats = array_merge($this->stats, get_option('wfs_stats', []));
+    }
+
+    /**
+     * Sauvegarder les statistiques
+     */
+    private function save_stats() {
+        update_option('wfs_stats', $this->stats);
+    }
+
+    /**
+     * Ajouter le menu admin
+     */
+    public function add_admin_menu() {
+        add_submenu_page(
+            'woocommerce',
+            __('Fraud Shield', 'woocommerce-fraud-shield'),
+            __('Fraud Shield', 'woocommerce-fraud-shield'),
+            'manage_woocommerce',
+            'woocommerce-fraud-shield',
+            [$this, 'admin_page']
+        );
+    }
+
+    /**
+     * Enqueue admin scripts
+     */
+    public function enqueue_admin_scripts($hook) {
+        if (strpos($hook, 'woocommerce-fraud-shield') === false) {
+            return;
+        }
+
+        wp_enqueue_script('wfs-admin', WFS_PLUGIN_URL . 'assets/admin.js', ['jquery'], WFS_VERSION, true);
+        wp_enqueue_style('wfs-admin', WFS_PLUGIN_URL . 'assets/admin.css', [], WFS_VERSION);
+
+        wp_localize_script('wfs-admin', 'wfs_ajax', [
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('wfs_admin_nonce')
+        ]);
+    }
+
+    /**
+     * Page d'administration
+     */
+    public function admin_page() {
+        // Traitement du formulaire
+        if (isset($_POST['submit']) && wp_verify_nonce($_POST['_wpnonce'], 'wfs_settings')) {
+            $this->config['enabled'] = isset($_POST['enabled']);
+            $this->config['alert_threshold'] = intval($_POST['alert_threshold']);
+            $this->config['auto_security_fee'] = isset($_POST['auto_security_fee']);
+            $this->config['email_alerts'] = isset($_POST['email_alerts']);
+            $this->config['log_all_attempts'] = isset($_POST['log_all_attempts']);
+
+            $this->save_config();
+
+            echo '<div class="notice notice-success"><p>' . __('Settings saved successfully!', 'woocommerce-fraud-shield') . '</p></div>';
+        }
+
+        // Recharger la config
+        $this->load_config();
+        $this->load_stats();
+
+        include WFS_PLUGIN_PATH . 'templates/admin-page.php';
+    }
+
+    /**
+     * AJAX: Obtenir les statistiques en temps réel
+     */
+    public function ajax_get_live_stats() {
+        check_ajax_referer('wfs_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(__('Insufficient permissions.', 'woocommerce-fraud-shield'));
+        }
+
+        $this->load_stats();
+
+        // Statistiques du mois en cours
+        $monthly_stats = $this->get_monthly_stats();
+
+        wp_send_json_success([
+            'stats' => $this->stats,
+            'monthly' => $monthly_stats,
+            'timestamp' => current_time('mysql')
+        ]);
+    }
+
+    /**
+     * AJAX: Nettoyer les logs
+     */
+    public function ajax_clear_logs() {
+        check_ajax_referer('wfs_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(__('Insufficient permissions.', 'woocommerce-fraud-shield'));
+        }
+
+        $log_type = sanitize_text_field($_POST['log_type'] ?? 'all');
+        $cleared = $this->clear_logs($log_type);
+
+        wp_send_json_success(['message' => "Cleared {$cleared} log files."]);
+    }
+
+    /**
+     * Obtenir les statistiques mensuelles
+     *
+     * @return array
+     */
+    private function get_monthly_stats() {
+        $log_files = glob(WFS_LOG_DIR . '*-' . date('Y-m') . '.log');
+        $stats = [
+            'total_events' => 0,
+            'honeypot_detections' => 0,
+            'high_risk_alerts' => 0,
+            'order_analyses' => 0
+        ];
+
+        foreach ($log_files as $file) {
+            $lines = file($file, FILE_IGNORE_NEW_LINES);
+            $basename = basename($file, '.log');
+            $type = substr($basename, 0, strrpos($basename, '-'));
+
+            switch ($type) {
+                case 'honeypot':
+                    $stats['honeypot_detections'] += count($lines);
+                    break;
+                case 'high_risk_alert':
+                    $stats['high_risk_alerts'] += count($lines);
+                    break;
+                case 'order_analysis':
+                    $stats['order_analyses'] += count($lines);
+                    break;
+            }
+
+            $stats['total_events'] += count($lines);
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Nettoyer les logs
+     *
+     * @param string $type
+     * @return int
+     */
+    private function clear_logs($type = 'all') {
+        $pattern = ($type === 'all') ? WFS_LOG_DIR . '*.log' : WFS_LOG_DIR . $type . '-*.log';
+        $files = glob($pattern);
+        $cleared = 0;
+
+        foreach ($files as $file) {
+            if (unlink($file)) {
+                $cleared++;
+            }
+        }
+
+        return $cleared;
+    }
+
+    /**
+     * Charger les traductions
+     */
+    public function load_textdomain() {
+        load_plugin_textdomain('woocommerce-fraud-shield', false, dirname(plugin_basename(WFS_PLUGIN_FILE)) . '/languages');
+    }
+
+    /**
+     * Activation du plugin
+     */
+    public function activate() {
+        // Créer les tables/options nécessaires
+        $this->create_directories();
+
+        // Valeurs par défaut
+        add_option('wfs_enabled', false);
+        add_option('wfs_alert_threshold', 60);
+        add_option('wfs_auto_security_fee', true);
+        add_option('wfs_email_alerts', true);
+        add_option('wfs_log_all_attempts', true);
+        add_option('wfs_stats', [
+            'honeypot_detections' => 0,
+            'security_fees_applied' => 0,
+            'total_amount_protected' => 0,
+            'alerts_sent' => 0
+        ]);
+
+        // Log de l'activation
+        $this->log_event([
+            'event' => 'plugin_activated',
+            'version' => WFS_VERSION,
+            'timestamp' => current_time('mysql')
+        ], 'system');
+    }
+
+    /**
+     * Désactivation du plugin
+     */
+    public function deactivate() {
+        // Log de la désactivation
+        $this->log_event([
+            'event' => 'plugin_deactivated',
+            'version' => WFS_VERSION,
+            'timestamp' => current_time('mysql')
+        ], 'system');
+
+        // Note: Ne pas supprimer les options/logs pour permettre la réactivation
     }
 }
 
-// Initialize the corrected 9999€ rate system
-// Initialize the plugin
-add_action('plugins_loaded', 'woocommerce_fraud_shield_init');
-
-/**
- * Initialize WooCommerce Fraud Shield
- *
- * @since 1.0.0
- */
-function woocommerce_fraud_shield_init() {
+// Vérifier les prérequis et initialiser
+add_action('plugins_loaded', function() {
     if (class_exists('WooCommerce')) {
-        WooCommerce_Fraud_Shield::getInstance();
+        WooCommerce_Fraud_Shield::get_instance();
     } else {
-        add_action('admin_notices', 'woocommerce_fraud_shield_woocommerce_missing_notice');
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-error"><p><strong>' . __('WooCommerce Fraud Shield', 'woocommerce-fraud-shield') . ':</strong> ' . __('WooCommerce must be installed and activated.', 'woocommerce-fraud-shield') . '</p></div>';
+        });
     }
-}
+});
 
-/**
- * Display admin notice if WooCommerce is not active
- *
- * @since 1.0.0
- */
-function woocommerce_fraud_shield_woocommerce_missing_notice() {
-    echo '<div class="notice notice-error"><p>';
-    echo '<strong>WooCommerce Fraud Shield</strong> requires WooCommerce to be installed and active.';
-    echo '</p></div>';
-}
+// Hook d'installation pour les futures mises à jour
+register_activation_hook(WFS_PLUGIN_FILE, [WooCommerce_Fraud_Shield::class, 'activate']);
+register_deactivation_hook(WFS_PLUGIN_FILE, [WooCommerce_Fraud_Shield::class, 'deactivate']);
